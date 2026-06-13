@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>上古汉语音韵可视化系统</title>
+    <link rel="icon" href="data:,">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="styles.css?v=20260522-domain-1">
+</head>
+
+<body>
+    <div class="container page-shell">
+        <main class="workspace">
+            <section class="tools-block" id="toolSection">
+                <div class="tool-grid">
+                    <section class="control-panel tool-panel tool-panel-wide">
+                        <div class="panel-heading compact">
+                            <div>
+                                <span class="eyebrow">批量处理</span>
+                                <h2>文本汉字读音提取</h2>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="textInput">粘贴原文</label>
+                            <textarea id="textInput" rows="7"
+                                placeholder="功能 A：提取汉字读音。&#10;自动去标点、去重并列出详细读音。&#10;&#10;功能 B：转换为拟音文本。&#10;保留原文格式和标点，将汉字替换为上古拟音。"></textarea>
+                            <div class="field-hint">提取适合做字表核查；转换后选中拟音读音，可同步高亮对应汉字。</div>
+                        </div>
+
+                        <div class="search-buttons">
+                            <button type="button" class="btn-primary" onclick="window.TextProcessing.processText()">提取汉字读音</button>
+                            <button type="button" class="btn-accent" onclick="window.TextProcessing.convertTextToPhonetic()">转换为拟音文本</button>
+                            <button type="button" class="btn-secondary" onclick="window.TextProcessing.clearTextProcessing()">清除</button>
+                            <button type="button" class="btn-secondary" onclick="window.TextProcessing.exportTextResults()" id="exportTextBtn"
+                                disabled>导出结果</button>
+                        </div>
+
+                        <div id="textProcessResult" class="tool-result" style="display: none;"></div>
+                    </section>
+
+                    <section class="control-panel tool-panel tool-panel-wide">
+                        <div class="panel-heading compact">
+                            <div>
+                                <span class="eyebrow">字典导出</span>
+                                <h2>文本释义与注释提取</h2>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="glossTextInput">粘贴待整理文本</label>
+                            <textarea id="glossTextInput" rows="6"
+                                placeholder="粘贴任意一段文本。&#10;系统会自动提取汉字、去重，并从《上古汉语音节表.xlsx》的“字典表”读取 K/L 列。"></textarea>
+                            <div class="field-hint">输出列固定为：字头、释义、注释。若同一字在原表中有多条释义或注释，会按原表顺序去重合并。</div>
+                        </div>
+
+                        <div class="search-buttons">
+                            <button type="button" class="btn-primary" onclick="window.TextProcessing.processGlossText()"
+                                id="processGlossBtn">提取释义注释</button>
+                            <button type="button" class="btn-secondary" onclick="window.TextProcessing.clearGlossProcessing()">清除</button>
+                            <button type="button" class="btn-secondary" onclick="window.TextProcessing.exportGlossResults()"
+                                id="exportGlossBtn" disabled>导出 CSV</button>
+                        </div>
+
+                        <div id="glossResult" class="tool-result" style="display: none;"></div>
+                    </section>
+
+                    <section class="control-panel tool-panel tool-panel-wide">
+                        <div class="panel-heading compact">
+                            <div>
+                                <span class="eyebrow">諧聲域导出</span>
+                                <h2>同諧聲域汉字提取</h2>
+                            </div>
+                        </div>
+
+                        <div class="filters compact-filters">
+                            <div class="filter-group">
+                                <label for="phoneticDomainCharInput">输入汉字</label>
+                                <input id="phoneticDomainCharInput" type="text" autocomplete="off"
+                                    placeholder="输入一个汉字，如：之">
+                            </div>
+
+                            <div class="filter-group">
+                                <label for="phoneticDomainSourceMode">数据来源</label>
+                                <select id="phoneticDomainSourceMode">
+                                    <option value="old-chinese">只看《上古汉语音节表》</option>
+                                    <option value="chen-index">只看《兩周古文字編注》索引</option>
+                                    <option value="merged">两表合并</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="field-hint">分别按“字典表”D 列或陈靖索引“正表”G 列「諧聲域」查找；陈靖索引的字头会自动反查《上古汉语音节表》的释义。</div>
+
+                        <div class="search-buttons">
+                            <button type="button" class="btn-primary"
+                                onclick="window.TextProcessing.extractAndExportPhoneticDomain()"
+                                id="extractPhoneticDomainBtn">一键提取并导出 XLSX</button>
+                            <button type="button" class="btn-secondary"
+                                onclick="window.TextProcessing.clearPhoneticDomain()">清除</button>
+                        </div>
+
+                        <div id="phoneticDomainResult" class="tool-result" style="display: none;"></div>
+                    </section>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="ui.js?v=20260522-tools-only-1"></script>
+    <script src="text-processing.js?v=20260526-chen-gloss-1"></script>
+    <script src="main.js?v=20260522-tools-only-1"></script>
+</body>
+
+</html>
