@@ -5,12 +5,26 @@
 
 window.app = {
     allData: [],
-    charIndex: new Map()
+    charIndex: new Map(),
+    dataPromise: null,
+    dataLoaded: false
 };
 
 async function loadData() {
+    if (window.app.dataLoaded) {
+        return window.app;
+    }
+
+    if (window.app.dataPromise) {
+        return window.app.dataPromise;
+    }
+
+    window.app.dataPromise = (async () => {
     try {
-        const dataResponse = await fetch('上古音韵数据.json');
+        const dataResponse = await fetch('data/phon.json');
+        if (!dataResponse.ok) {
+            throw new Error(`Data request failed with status ${dataResponse.status}.`);
+        }
 
         window.app.allData = await dataResponse.json();
         window.app.charIndex = window.app.allData.reduce((map, item) => {
@@ -22,18 +36,24 @@ async function loadData() {
             map.get(char).push(item);
             return map;
         }, new Map());
+        window.app.dataLoaded = true;
+        return window.app;
     } catch (error) {
+        window.app.dataPromise = null;
         console.error('Error loading data:', error);
-        alert('数据加载失败，请确认 `上古音韵数据.json` 可正常访问。');
+        alert('数据加载失败，请确认 `data/phon.json` 可正常访问。');
+        throw error;
     }
+    })();
+
+    return window.app.dataPromise;
 }
 
 async function initializeApp() {
     if (window.UI?.initializeUI) {
         window.UI.initializeUI();
     }
-
-    await loadData();
 }
 
+window.app.ensureDataLoaded = loadData;
 window.addEventListener('load', initializeApp);

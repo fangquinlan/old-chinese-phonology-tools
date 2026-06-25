@@ -26,10 +26,15 @@ function createHanRegex(flags) {
 
 const HAN_CHAR_REGEX_GLOBAL = createHanRegex('gu');
 const HAN_CHAR_REGEX_SINGLE = createHanRegex('u');
-const OLD_CHINESE_WORKBOOK_FILE = '上古汉语音节表.xlsx';
-const OLD_CHINESE_DICTIONARY_SHEET = '字典表';
-const CHEN_INDEX_WORKBOOK_FILE = '陳靖《兩周古文字編注》索引.xlsx';
-const CHEN_INDEX_MAIN_SHEET = '正表';
+// Pre-built compact data files (see tools/build_site_data.py). The browser no
+// longer parses the multi-megabyte .xlsx workbooks at runtime.
+const GLOSS_DATA_URL = 'data/gloss.json';
+const DICT_DOMAIN_DATA_URL = 'data/dict_domain.json';
+const CHEN_INDEX_DATA_URL = 'data/chen_index.json';
+// SheetJS is vendored locally (used only to *write* the XLSX export); the CDN
+// is a fallback in case the local copy is missing.
+const XLSX_SCRIPT_URL = 'vendor/xlsx.full.min.js';
+const XLSX_SCRIPT_FALLBACK_URL = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
 const PHONETIC_DOMAIN_SOURCES = {
     oldChinese: {
         value: 'old-chinese',
@@ -59,6 +64,7 @@ let phoneticDomainExportRows = [];
 let phoneticDomainExportMeta = null;
 let idsMap = null;
 let idsMapPromise = null;
+let xlsxScriptPromise = null;
 const MANUAL_PHONETIC_OVERRIDES_STORAGE_KEY = 'oldChineseManualPhoneticOverrides';
 let manualPhoneticOverrides = loadManualPhoneticOverrides();
 
@@ -158,6 +164,53 @@ function downloadWorkbook(headers, rows, filename, sheetName) {
     return filename;
 }
 
+async function ensureDataLoaded() {
+    if (window.app?.dataLoaded) {
+        return window.app;
+    }
+
+    if (!window.app?.ensureDataLoaded) {
+        throw new Error('Data loader is unavailable.');
+    }
+
+    return window.app.ensureDataLoaded();
+}
+
+function loadScriptOnce(src) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.onload = () => resolve(window.XLSX);
+        script.onerror = () => reject(new Error(`Script failed to load: ${src}`));
+        document.head.appendChild(script);
+    });
+}
+
+async function ensureXlsxLoaded() {
+    if (window.XLSX) {
+        return window.XLSX;
+    }
+
+    if (!xlsxScriptPromise) {
+        xlsxScriptPromise = loadScriptOnce(XLSX_SCRIPT_URL)
+            .catch(() => loadScriptOnce(XLSX_SCRIPT_FALLBACK_URL))
+            .then(xlsx => {
+                if (!xlsx) {
+                    throw new Error('XLSX parser is unavailable after loading.');
+                }
+
+                return xlsx;
+            })
+            .catch(error => {
+                xlsxScriptPromise = null;
+                throw error;
+            });
+    }
+
+    return xlsxScriptPromise;
+}
+
 function parseIdsLine(line) {
     const cleanedLine = line.replace(/^\uFEFF/, '').trimEnd();
     if (!cleanedLine) return null;
@@ -182,7 +235,7 @@ async function loadIdsMap() {
     }
 
     idsMapPromise = (async () => {
-        const response = await fetch('ids_lv0.txt', { cache: 'no-store' });
+        const response = await fetch('ids_lv0.txt');
         if (!response.ok) {
             throw new Error(`IDS request failed with status ${response.status}.`);
         }
@@ -218,8 +271,23 @@ function getExtractedCharStats(text) {
 /**
  * 处理文本：去标点、去重、查询读音
  */
-function processText() {
+function setTextProcessingState(isProcessing, label = '提取汉字读音') {
+    const processButton = document.querySelector('[data-action="process-text"]');
+    const convertButton = document.querySelector('[data-action="convert-phonetic"]');
+
+    if (processButton) {
+        processButton.disabled = isProcessing;
+        processButton.textContent = isProcessing ? '正在读取数据...' : label;
+    }
+
+    if (convertButton) {
+        convertButton.disabled = isProcessing;
+    }
+}
+
+async function processText() {
     const text = document.getElementById('textInput').value.trim();
+    const container = document.getElementById('textProcessResult');
 
     if (!text) {
         alert('请输入文本！');
@@ -233,11 +301,23 @@ function processText() {
         return;
     }
 
-    const results = queryPronunciations(uniqueChars);
-    textProcessResults = results;
+    container.style.display = 'block';
+    container.innerHTML = '<div class="loading">正在读取音韵数据...</div>';
+    setTextProcessingState(true);
 
-    displayTextProcessResults(results, chineseChars.length, uniqueChars.length);
-    document.getElementById('exportTextBtn').disabled = false;
+    try {
+        await ensureDataLoaded();
+        const results = queryPronunciations(uniqueChars);
+        textProcessResults = results;
+
+        displayTextProcessResults(results, chineseChars.length, uniqueChars.length);
+        document.getElementById('exportTextBtn').disabled = false;
+    } catch (error) {
+        console.error('音韵数据加载失败:', error);
+        container.innerHTML = '<div class="no-results">读取音韵数据失败，请确认文件可正常访问。</div>';
+    } finally {
+        setTextProcessingState(false);
+    }
 }
 
 /**
@@ -256,7 +336,7 @@ function extractChineseChars(text) {
  */
 function queryPronunciations(chars) {
     return chars.map(char => {
-        const charData = window.app.allData.filter(d => d['字'] === char);
+        const charData = window.app.charIndex.get(char) || [];
 
         if (!charData.length) {
             return {
@@ -411,7 +491,7 @@ function getCharSoundEntry(char) {
         };
     }
 
-    const charData = window.app.allData.filter(item => item['字'] === char);
+    const charData = window.app.charIndex.get(char) || [];
     const sounds = [...new Set(charData.map(item => item['音']).filter(Boolean))];
 
     if (sounds.length > 0) {
@@ -556,7 +636,7 @@ function focusManualPhoneticInput(char) {
     window.setTimeout(() => row.classList.remove('is-editing'), 1200);
 }
 
-function saveManualPhoneticOverride(row) {
+async function saveManualPhoneticOverride(row) {
     const char = row?.dataset.char;
     const input = row?.querySelector('.manual-phonetic-input');
     const sound = input?.value.trim() || '';
@@ -571,7 +651,7 @@ function saveManualPhoneticOverride(row) {
 
     manualPhoneticOverrides.set(char, sound);
     persistManualPhoneticOverrides();
-    convertTextToPhonetic();
+    await convertTextToPhonetic();
     focusManualPhoneticInput(char);
 }
 
@@ -583,7 +663,7 @@ function bindManualPhoneticEditor() {
         const button = event.target.closest('.manual-phonetic-save');
         if (!button) return;
 
-        saveManualPhoneticOverride(button.closest('.manual-phonetic-row'));
+        void saveManualPhoneticOverride(button.closest('.manual-phonetic-row'));
     });
 
     editor.addEventListener('keydown', event => {
@@ -593,7 +673,7 @@ function bindManualPhoneticEditor() {
         if (!input) return;
 
         event.preventDefault();
-        saveManualPhoneticOverride(input.closest('.manual-phonetic-row'));
+        void saveManualPhoneticOverride(input.closest('.manual-phonetic-row'));
     });
 }
 
@@ -691,28 +771,13 @@ async function exportTextResults() {
     );
 }
 
-async function loadWorkbookSheetRows(filename, sheetName) {
-    if (!window.XLSX) {
-        throw new Error('XLSX parser is unavailable.');
-    }
-
-    const url = new URL(filename, window.location.href);
-    url.searchParams.set('v', Date.now().toString());
-
-    const response = await fetch(url.href, { cache: 'no-store' });
+async function fetchJsonData(url) {
+    const response = await fetch(url);
     if (!response.ok) {
-        throw new Error(`Workbook request failed with status ${response.status}.`);
+        throw new Error(`Data request for "${url}" failed with status ${response.status}.`);
     }
 
-    const workbookBuffer = await response.arrayBuffer();
-    const workbook = window.XLSX.read(workbookBuffer, { type: 'array' });
-    const sheet = workbook.Sheets[sheetName];
-
-    if (!sheet) {
-        throw new Error(`Workbook sheet "${sheetName}" was not found.`);
-    }
-
-    return window.XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    return response.json();
 }
 
 async function loadDictionaryRowsFromWorkbook() {
@@ -725,7 +790,7 @@ async function loadDictionaryRowsFromWorkbook() {
     }
 
     dictionaryRowsPromise = (async () => {
-        dictionaryRows = await loadWorkbookSheetRows(OLD_CHINESE_WORKBOOK_FILE, OLD_CHINESE_DICTIONARY_SHEET);
+        dictionaryRows = await fetchJsonData(DICT_DOMAIN_DATA_URL);
         return dictionaryRows;
     })().catch(error => {
         dictionaryRowsPromise = null;
@@ -745,7 +810,7 @@ async function loadChenIndexRowsFromWorkbook() {
     }
 
     chenIndexRowsPromise = (async () => {
-        chenIndexRows = await loadWorkbookSheetRows(CHEN_INDEX_WORKBOOK_FILE, CHEN_INDEX_MAIN_SHEET);
+        chenIndexRows = await fetchJsonData(CHEN_INDEX_DATA_URL);
         return chenIndexRows;
     })().catch(error => {
         chenIndexRowsPromise = null;
@@ -764,14 +829,17 @@ async function loadOldChineseWorkbookGlossMap() {
         return oldChineseWorkbookGlossMapPromise;
     }
 
-    oldChineseWorkbookGlossMapPromise = (async () => {
-        const rows = await loadDictionaryRowsFromWorkbook();
-        oldChineseWorkbookGlossMap = buildGlossDictionaryMap(rows);
-        return oldChineseWorkbookGlossMap;
-    })().catch(error => {
-        oldChineseWorkbookGlossMapPromise = null;
-        throw error;
-    });
+    // The chen-index reverse gloss lookup wants the full 釋義, which lives in the
+    // same prebuilt gloss map used by the 释义注释 tool.
+    oldChineseWorkbookGlossMapPromise = loadGlossDictionaryMap()
+        .then(map => {
+            oldChineseWorkbookGlossMap = map;
+            return map;
+        })
+        .catch(error => {
+            oldChineseWorkbookGlossMapPromise = null;
+            throw error;
+        });
 
     return oldChineseWorkbookGlossMapPromise;
 }
@@ -786,13 +854,19 @@ async function loadGlossDictionaryMap() {
     }
 
     glossDictionaryPromise = (async () => {
-        if (Array.isArray(window.app?.allData) && window.app.allData.length > 0) {
-            glossDictionaryMap = buildGlossDictionaryMap(window.app.allData);
-            return glossDictionaryMap;
-        }
+        const data = await fetchJsonData(GLOSS_DATA_URL);
+        const dictionaryMap = new Map();
 
-        const rows = await loadDictionaryRowsFromWorkbook();
-        glossDictionaryMap = buildGlossDictionaryMap(rows);
+        Object.entries(data).forEach(([char, entry]) => {
+            if (!char) return;
+            dictionaryMap.set(char, {
+                char,
+                meanings: Array.isArray(entry?.meanings) ? entry.meanings : [],
+                notes: Array.isArray(entry?.notes) ? entry.notes : []
+            });
+        });
+
+        glossDictionaryMap = dictionaryMap;
         return glossDictionaryMap;
     })().catch(error => {
         glossDictionaryPromise = null;
@@ -800,36 +874,6 @@ async function loadGlossDictionaryMap() {
     });
 
     return glossDictionaryPromise;
-}
-
-function buildGlossDictionaryMap(rows) {
-    const dictionaryMap = new Map();
-
-    rows.forEach(row => {
-        const char = normalizeCellText(row['字']);
-        if (!char) return;
-
-        const entry = dictionaryMap.get(char) || {
-            char,
-            meanings: [],
-            notes: []
-        };
-
-        const meaning = normalizeCellText(row['釋義']);
-        const note = normalizeCellText(row['注釋']);
-
-        if (meaning && !entry.meanings.includes(meaning)) {
-            entry.meanings.push(meaning);
-        }
-
-        if (note && !entry.notes.includes(note)) {
-            entry.notes.push(note);
-        }
-
-        dictionaryMap.set(char, entry);
-    });
-
-    return dictionaryMap;
 }
 
 function setGlossProcessingState(isProcessing) {
@@ -881,7 +925,7 @@ async function processGlossText() {
     }
 
     container.style.display = 'block';
-    container.innerHTML = '<div class="loading">正在读取《上古汉语音节表.xlsx》的字典表...</div>';
+    container.innerHTML = '<div class="loading">正在读取字典释义数据...</div>';
     setGlossProcessingState(true);
 
     try {
@@ -894,8 +938,8 @@ async function processGlossText() {
     } catch (error) {
         console.error('释义注释提取失败:', error);
         glossExportResults = [];
-        container.innerHTML = '<div class="no-results">读取《上古汉语音节表.xlsx》失败，请确认文件可正常访问，且浏览器能加载 XLSX 解析脚本。</div>';
-        alert('读取《上古汉语音节表.xlsx》失败，请稍后重试。');
+        container.innerHTML = '<div class="no-results">读取字典释义数据失败，请确认 `data/gloss.json` 可正常访问。</div>';
+        alert('读取字典释义数据失败，请稍后重试。');
     } finally {
         setGlossProcessingState(false);
     }
@@ -1308,6 +1352,12 @@ async function extractAndExportPhoneticDomain() {
             return;
         }
 
+        // Load SheetJS only now, for writing the export. If it fails to load,
+        // downloadWorkbook() transparently falls back to CSV.
+        await ensureXlsxLoaded().catch(error => {
+            console.warn('XLSX 解析脚本加载失败，将改为导出 CSV。', error);
+        });
+
         const headers = getPhoneticDomainHeaders();
         const exportRows = getPhoneticDomainExportValues(result.rows);
         const domainFilenamePart = sanitizeFilenamePart(getPhoneticDomainLabel(result), '未知諧聲域');
@@ -1349,7 +1399,7 @@ function clearPhoneticDomain() {
  * 转换为拟音文本
  * 逐字将字替换成上古音，保留标点
  */
-function convertTextToPhonetic() {
+async function convertTextToPhonetic() {
     const text = document.getElementById('textInput').value;
 
     if (!text) {
@@ -1357,68 +1407,78 @@ function convertTextToPhonetic() {
         return;
     }
 
-    pruneManualPhoneticOverrides(text);
-
     const container = document.getElementById('textProcessResult');
     container.style.display = 'block';
+    container.innerHTML = '<div class="loading">正在读取音韵数据...</div>';
+    setTextProcessingState(true, '提取汉字读音');
 
-    let html = '<div class="comparison-container">';
-    html += '<h3>拟音文本转换结果</h3>';
+    try {
+        await ensureDataLoaded();
+        pruneManualPhoneticOverrides(text);
 
-    let resultText = '';
-    const entries = [];
-    let pairIndex = 0;
+        let html = '<div class="comparison-container">';
+        html += '<h3>拟音文本转换结果</h3>';
 
-    for (const char of text) {
-        if (HAN_CHAR_REGEX_SINGLE.test(char)) {
-            const soundEntry = getCharSoundEntry(char);
+        let resultText = '';
+        const entries = [];
+        let pairIndex = 0;
 
-            resultText += `${soundEntry.sound} `;
-            entries.push({
-                type: 'han',
-                char,
-                sound: soundEntry.sound,
-                missing: soundEntry.missing,
-                manual: soundEntry.manual,
-                pairId: `phonetic-pair-${pairIndex}`
-            });
-            pairIndex += 1;
-        } else {
-            resultText += char;
-            entries.push({
-                type: 'text',
-                text: char
-            });
+        for (const char of text) {
+            if (HAN_CHAR_REGEX_SINGLE.test(char)) {
+                const soundEntry = getCharSoundEntry(char);
+
+                resultText += `${soundEntry.sound} `;
+                entries.push({
+                    type: 'han',
+                    char,
+                    sound: soundEntry.sound,
+                    missing: soundEntry.missing,
+                    manual: soundEntry.manual,
+                    pairId: `phonetic-pair-${pairIndex}`
+                });
+                pairIndex += 1;
+            } else {
+                resultText += char;
+                entries.push({
+                    type: 'text',
+                    text: char
+                });
+            }
         }
+
+        const { sourceHtml, outputHtml } = buildPhoneticPairMarkup(entries);
+        const manualEditorHtml = buildManualPhoneticEditor(entries);
+
+        html += `
+            <div class="phonetic-pair-view">
+                <div class="phonetic-source-panel">
+                    <div class="phonetic-panel-label">原文</div>
+                    <div id="phoneticSourceText" class="phonetic-source-text">${sourceHtml}</div>
+                </div>
+                <div class="phonetic-output-wrap">
+                    <div class="phonetic-panel-label">拟音文本</div>
+                    <div id="phoneticOutput" class="phonetic-output phonetic-output-display" tabindex="0"
+                        data-plain-text="${escapeHtmlText(resultText)}">${outputHtml}</div>
+                </div>
+            </div>
+            ${manualEditorHtml}
+            <div class="phonetic-actions">
+                 <button type="button" class="btn-primary" onclick="window.TextProcessing.copyPhoneticText(this)">
+                    复制结果
+                </button>
+            </div>
+        `;
+
+        html += '</div>';
+        container.innerHTML = html;
+        bindPhoneticHighlighting();
+        bindManualPhoneticEditor();
+    } catch (error) {
+        console.error('音韵数据加载失败:', error);
+        container.innerHTML = '<div class="no-results">读取音韵数据失败，请确认文件可正常访问。</div>';
+    } finally {
+        setTextProcessingState(false);
     }
-
-    const { sourceHtml, outputHtml } = buildPhoneticPairMarkup(entries);
-    const manualEditorHtml = buildManualPhoneticEditor(entries);
-
-    html += `
-        <div class="phonetic-pair-view">
-            <div class="phonetic-source-panel">
-                <div class="phonetic-panel-label">原文</div>
-                <div id="phoneticSourceText" class="phonetic-source-text">${sourceHtml}</div>
-            </div>
-            <div class="phonetic-output-wrap">
-                <div class="phonetic-panel-label">拟音文本</div>
-                <div id="phoneticOutput" class="phonetic-output phonetic-output-display" tabindex="0"
-                    data-plain-text="${escapeHtmlText(resultText)}">${outputHtml}</div>
-            </div>
-        </div>
-        ${manualEditorHtml}
-        <div class="phonetic-actions">
-             <button type="button" class="btn-primary" onclick="window.TextProcessing.copyPhoneticText(this)">
-                复制结果
-            </button>
-        </div>
-    `;
-
-    html += '</div>';
-    container.innerHTML = html;
-    bindPhoneticHighlighting();
-    bindManualPhoneticEditor();
 }
 
 /**

@@ -9,7 +9,6 @@
     <meta http-equiv="Expires" content="0">
     <title>上古汉语音韵可视化系统</title>
     <link rel="icon" href="data:,">
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="styles.css?v=20260522-domain-1">
 </head>
 
@@ -34,8 +33,10 @@
                         </div>
 
                         <div class="search-buttons">
-                            <button type="button" class="btn-primary" onclick="window.TextProcessing.processText()">提取汉字读音</button>
-                            <button type="button" class="btn-accent" onclick="window.TextProcessing.convertTextToPhonetic()">转换为拟音文本</button>
+                            <button type="button" class="btn-primary" data-action="process-text"
+                                onclick="window.TextProcessing.processText()">提取汉字读音</button>
+                            <button type="button" class="btn-accent" data-action="convert-phonetic"
+                                onclick="window.TextProcessing.convertTextToPhonetic()">转换为拟音文本</button>
                             <button type="button" class="btn-secondary" onclick="window.TextProcessing.clearTextProcessing()">清除</button>
                             <button type="button" class="btn-secondary" onclick="window.TextProcessing.exportTextResults()" id="exportTextBtn"
                                 disabled>导出结果</button>
@@ -111,9 +112,9 @@
         </main>
     </div>
 
-    <script src="ui.js?v=20260522-tools-only-1"></script>
-    <script src="text-processing.js?v=20260526-chen-gloss-1"></script>
-    <script src="main.js?v=20260522-tools-only-1"></script>
+    <script src="ui.js?v=20260625-compact-data-1"></script>
+    <script src="text-processing.js?v=20260625-compact-data-1"></script>
+    <script src="main.js?v=20260625-compact-data-1"></script>
 </body>
 
 </html>

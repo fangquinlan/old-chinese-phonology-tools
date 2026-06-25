@@ -41,11 +41,25 @@ python -m http.server 8081 -d docs
 
 ## 数据文件
 
-`docs/` 中的核心数据由浏览器直接读取：
+为了让网页保持流畅，浏览器**不再直接解析 `.xlsx` 工作簿**（它们在内存里会膨胀到几十 MB），而是读取由构建脚本预先生成的紧凑 JSON：
 
-- `上古音韵数据.json`
-- `上古汉语音节表.xlsx`
-- `陳靖《兩周古文字編注》索引.xlsx`
-- `ids_lv0.txt`
+- `docs/data/phon.json` —— 提取读音 / 转换拟音用的核心数据，页面启动后即加载（约 2.6 MB，gzip 后约 0.7 MB）。
+- `docs/data/gloss.json` —— 释义注释，按需懒加载。
+- `docs/data/dict_domain.json` —— 同諧聲域（《上古汉语音节表》），按需懒加载。
+- `docs/data/chen_index.json` —— 同諧聲域（陳靖索引），按需懒加载。
+- `docs/ids_lv0.txt` —— 导出时读取的字头 IDS 数据。
+- `docs/vendor/xlsx.full.min.js` —— 本地内置的 SheetJS，**仅用于导出 XLSX**（不再依赖外部 CDN）。
 
-这些文件都已复制到 `docs/`，应随仓库一起部署到 GitHub Pages。
+这些文件由以下源工作簿生成（位于仓库根目录）：`上古汉语音节表.xlsx`、`陳靖《兩周古文字編注》索引.xlsx`。
+
+### 重新生成数据
+
+修改源工作簿后，运行：
+
+```powershell
+python tools\build_site_data.py
+```
+
+`python tools\open-app-server.py` 启动本地预览时也会在工作簿有更新时自动重建这些文件。
+
+> 备注：`docs/` 下旧的 `上古音韵数据.json` 与两个 `.xlsx` 副本已不再被页面读取，可按需删除以减小部署体积（不影响运行）。
