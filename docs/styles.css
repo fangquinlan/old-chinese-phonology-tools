@@ -42,6 +42,14 @@
     --border-color: rgba(77, 60, 36, 0.12);
 }
 
+@font-face {
+    font-family: "Charis SIL";
+    src: url("fonts/Charis-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
 html {
     scroll-behavior: smooth;
 }
@@ -94,15 +102,6 @@ body::after {
     max-width: 1520px;
     margin: 0 auto;
     padding: 28px 24px 56px;
-}
-
-.hero,
-.control-panel,
-.results-section,
-.chart-card,
-.stat-card,
-.section-nav {
-    backdrop-filter: blur(16px);
 }
 
 .hero {
@@ -328,6 +327,16 @@ body::after {
 .workspace {
     display: grid;
     gap: 28px;
+}
+
+/* Let nested grid items shrink below their content so wide result tables stay
+   inside their own horizontal scroll area instead of forcing the page (and the
+   mobile layout viewport) wider than the screen. */
+.workspace,
+.tools-block,
+.tool-grid,
+.control-panel {
+    min-width: 0;
 }
 
 .control-panel,
@@ -1658,6 +1667,14 @@ canvas {
 .phonetic-output-display {
     min-height: 180px;
     user-select: text;
+}
+
+/* Reconstructed-pronunciation output renders IPA in Charis SIL; the CJK fallbacks
+   only cover any punctuation carried over from the source text. */
+.phonetic-output,
+.phonetic-output-display,
+.phonetic-token {
+    font-family: "Charis SIL", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif;
 }
 
 .phonetic-token,
